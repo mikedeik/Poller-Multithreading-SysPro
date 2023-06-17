@@ -3,24 +3,23 @@
 using namespace std;
 
 // we start by initializing the server instance to null
-PollerServer* PollerServer::serverInstance_ = nullptr;
+PollerServer *PollerServer::serverInstance_ = nullptr;
 
 // Server Constructor
 PollerServer::PollerServer(int portNum, int numWorkerThreads, int bufferSize, const std::string &pollLogFileName, const std::string &pollStatsFileName)
     : portNum_(portNum), numWorkerThreads_(numWorkerThreads), bufferSize_(bufferSize), pollLogFileName_(pollLogFileName), pollStatsFileName_(pollStatsFileName), running_(true)
 {
-    
 }
 
 void PollerServer::start()
 {
-    // Open the poll-log file 
+    // Open the poll-log file
     pollLog_.open(pollLogFileName_, std::ofstream::app);
 
     // Assign server instance to this instance
     serverInstance_ = this;
 
-    // Create worker threads 
+    // Create worker threads
     for (int i = 0; i < numWorkerThreads_; ++i)
     {
         workerThreads.emplace_back(&PollerServer::workerThread, this);
@@ -48,7 +47,7 @@ void PollerServer::handleSignalProxy(int signal)
     // since we cannot pass a PolleServer member function as a signal handler
     if (serverInstance_)
     {
-        serverInstance_->handleSignal(signal); 
+        serverInstance_->handleSignal(signal);
     }
 }
 
@@ -66,10 +65,6 @@ void PollerServer::handleSignal(int signal)
         cout << "sigint received\n";
         running_ = false;
         cv_.notify_all();
-        for (auto &thread : workerThreads)
-        {
-            thread.join();
-        }
 
         // Store the map pairs in a vector
         std::vector<std::pair<std::string, int>> pairs(partyVotes_.begin(), partyVotes_.end());
@@ -86,20 +81,7 @@ void PollerServer::handleSignal(int signal)
             pollStats_ << partyName << ": " << pair.second << std::endl;
         }
         pollStats_.flush();
-
-        // Close the poll-log and poll-stats files
-        pollLog_.close();
         pollStats_.close();
-
-        pollLogFileName_.clear();
-        pollStatsFileName_.clear();
-        buffer_.clear();
-        workerThreads.clear();
-        voters_.clear();
-        partyVotes_.clear();
-        serverInstance_ = nullptr;
-
-        exit(0);
     }
 }
 
@@ -112,8 +94,23 @@ void PollerServer::masterThread()
         std::cerr << "Failed to create server socket\n";
         return;
     }
-    // set up the signal handler on this thread 
+    // set up the signal handler on this thread
     signal(SIGINT, handleSignalProxy);
+
+    // Set the server socket to non-blocking mode
+    int flags = fcntl(serverSocket, F_GETFL, 0);
+    if (flags == -1)
+    {
+        std::cerr << "Failed to get socket flags\n";
+        close(serverSocket);
+        return;
+    }
+    if (fcntl(serverSocket, F_SETFL, flags | O_NONBLOCK) == -1)
+    {
+        std::cerr << "Failed to set socket to non-blocking mode\n";
+        close(serverSocket);
+        return;
+    }
 
     // init the server address and port
     sockaddr_in serverAddress{};
@@ -140,23 +137,29 @@ void PollerServer::masterThread()
 
     while (running_)
     {
-        
+
         sockaddr_in clientAddress{};
         socklen_t clientAddressLength = sizeof(clientAddress);
 
-        // accept the client connection 
+        // accept the client connection
         int clientSocket = accept(serverSocket, reinterpret_cast<sockaddr *>(&clientAddress), &clientAddressLength);
         if (clientSocket == -1)
         {
-            if (running_)
+            if (errno == EWOULDBLOCK || errno == EAGAIN)
+            {
+                // No pending connections, continue with the loop
+                continue;
+            }
+            else
             {
                 std::cerr << "Failed to accept client connection\n";
+                break;
             }
-            break;
         }
         // try lock the mutex and deposit in the condition variable which then checks if the buffer size is not full and the flag is false to awake
         std::unique_lock<std::mutex> lock(mtx_);
-        cv_.wait(lock, [this]() { return buffer_.size() < bufferSize_ || !running_; });
+        cv_.wait(lock, [this]()
+                 { return buffer_.size() + sizeof(int) < bufferSize_ || !running_; });
 
         // if the flag is false close the socket
         if (!running_)
@@ -165,11 +168,11 @@ void PollerServer::masterThread()
             break;
         }
         // if it's awake push the clientSocket fd into the buffer so workers can read
-        buffer_.push_back(clientSocket);
-        
+        buffer_.push(clientSocket);
+
         // unlock the mutex and notify one worker thread
         lock.unlock();
-        cv_.notify_one();
+        cv_.notify_all();
     }
 
     cout << "does it end?\n";
@@ -183,18 +186,19 @@ void PollerServer::workerThread()
     while (running_)
     {
         // worker thread tries to lock the mutex if buffer is not empty or flag is false
-        std::unique_lock<std::mutex> lock(mtx_); 
-        cv_.wait(lock, [this]() { return !buffer_.empty() || !running_; });
-         
+        std::unique_lock<std::mutex> lock(mtx_);
+        cv_.wait(lock, [this]()
+                 { return !buffer_.empty() || !running_; });
+
         // if flag is false exit the loop
         if (!running_)
             break;
 
         // get the first client connection remove it from buffer, unlock the mutex and notify the other threads
-        int clientSocket = buffer_.back();
-        buffer_.pop_back();
+        int clientSocket = buffer_.front();
+        buffer_.pop();
         lock.unlock();
-        cv_.notify_one();
+        cv_.notify_all();
 
         // Send the "SEND NAME PLEASE" message to the client
 
@@ -209,7 +213,7 @@ void PollerServer::workerThread()
         // Wait for the client to send the name
 
         char nameBuffer[1024];
-        // clear the name buffer 
+        // clear the name buffer
         memset(nameBuffer, 0, sizeof(nameBuffer));
         // and read the name from the client
         ssize_t bytesReceived = recv(clientSocket, nameBuffer, sizeof(nameBuffer), 0);
@@ -237,7 +241,6 @@ void PollerServer::workerThread()
         // if not add the voter's name to the vector
         voters_.push_back(name);
 
-
         // Send "SEND VOTE PLEASE" message to the client
         const std::string sendVoteMsg = "SEND VOTE PLEASE\n";
         if (send(clientSocket, sendVoteMsg.c_str(), sendVoteMsg.size(), 0) == -1)
@@ -247,12 +250,11 @@ void PollerServer::workerThread()
             continue;
         }
 
-
         // Wait for the client to send the party name
         char partyBuffer[1024];
 
         memset(partyBuffer, 0, sizeof(partyBuffer));
-        
+
         bytesReceived = recv(clientSocket, partyBuffer, sizeof(partyBuffer), 0);
         if (bytesReceived == -1)
         {
@@ -263,16 +265,6 @@ void PollerServer::workerThread()
 
         std::string party = partyBuffer;
 
-        // Acquire a lock before accessing the file
-        std::unique_lock<std::mutex> lock_file(fileMutex_);
-
-        // Write the name and party to the poll-log file
-        pollLog_ << name << " " << party;
-        pollLog_.flush();
-
-        // unlock the access to the file
-        lock_file.unlock();
-
         // Send "VOTE for [Party Name] RECORDED" message to the client
         std::string voteRecordedMsg = "VOTE for " + party + " RECORDED\n";
         if (send(clientSocket, voteRecordedMsg.c_str(), voteRecordedMsg.size(), 0) == -1)
@@ -282,6 +274,19 @@ void PollerServer::workerThread()
         // close the socket
         close(clientSocket);
 
+        // Acquire a lock before accessing the file
+        std::unique_lock<std::mutex> lock_file(fileMutex_);
+        cv_logfile.wait(lock_file, [this]()
+                        { return !worker_inside; });
+        worker_inside++;
+
+        // Write the name and party to the poll-log file
+        pollLog_ << name << " " << party;
+        pollLog_.flush();
+        worker_inside--;
+        // unlock the access to the file
+        lock_file.unlock();
+        cv_logfile.notify_all();
 
         // Update the server statistics (number of votes for each party)
         partyVotes_[party]++;
@@ -289,5 +294,3 @@ void PollerServer::workerThread()
 
     cout << "thread exiting\n";
 }
-
-

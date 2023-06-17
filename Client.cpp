@@ -14,6 +14,10 @@ using namespace std;
 
 void sendVote(const string &serverName, int portNum, const string &vote)
 {
+
+    std::thread::id this_id = std::this_thread::get_id();
+
+    std::cout << "thread " << this_id << " for line " << vote << "\n";
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (clientSocket == -1)
     {
@@ -24,10 +28,11 @@ void sendVote(const string &serverName, int portNum, const string &vote)
     sockaddr_in serverAddress{};
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(portNum);
-    
-    struct hostent* host = gethostbyname(serverName.c_str());
 
-    if (host == nullptr) {
+    struct hostent *host = gethostbyname(serverName.c_str());
+
+    if (host == nullptr)
+    {
         std::cerr << "Failed to get host by name\n";
         close(clientSocket);
         return;
@@ -125,7 +130,7 @@ void sendVote(const string &serverName, int portNum, const string &vote)
 
 int main(int argc, char *argv[])
 {
-    // check for correct arguments 
+    // check for correct arguments
     if (argc < 4)
     {
         cout << "Usage: " << argv[0] << " [serverName] [portNum] [inputFile.txt]\n";
@@ -144,7 +149,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    string vote; // the vote string
+    string vote;            // the vote string
     vector<thread> threads; // vector of threads
 
     while (getline(file, vote))
