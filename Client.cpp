@@ -15,9 +15,6 @@ using namespace std;
 void sendVote(const string &serverName, int portNum, const string &vote)
 {
 
-    std::thread::id this_id = std::this_thread::get_id();
-
-    std::cout << "thread " << this_id << " for line " << vote << "\n";
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (clientSocket == -1)
     {
@@ -47,6 +44,7 @@ void sendVote(const string &serverName, int portNum, const string &vote)
         return;
     }
 
+    cout << "connection to a worker established by thread " << std::this_thread::get_id() << "\n";
     char responseBuffer[1024];
     memset(responseBuffer, 0, sizeof(responseBuffer));
     ssize_t bytesRead = recv(clientSocket, responseBuffer, sizeof(responseBuffer), 0);

@@ -128,7 +128,7 @@ void PollerServer::masterThread()
     std::cout << "opened socket\n";
 
     // listen for incomimg connections
-    if (listen(serverSocket, bufferSize_) == -1)
+    if (listen(serverSocket, 256) == -1)
     {
         std::cerr << "Failed to listen on server socket\n";
         close(serverSocket);
@@ -137,7 +137,7 @@ void PollerServer::masterThread()
 
     while (running_)
     {
-
+        // cout << "trying again or locked \n";
         sockaddr_in clientAddress{};
         socklen_t clientAddressLength = sizeof(clientAddress);
 
@@ -156,10 +156,12 @@ void PollerServer::masterThread()
                 break;
             }
         }
-        // try lock the mutex and deposit in the condition variable which then checks if the buffer size is not full and the flag is false to awake
+
+        // try lock the mutex and deposit in the condition variable which then checks if the buffer size is not full
+        // and there is space to add a new connection and the flag is false to awake
         std::unique_lock<std::mutex> lock(mtx_);
         cv_.wait(lock, [this]()
-                 { return buffer_.size() + sizeof(int) < bufferSize_ || !running_; });
+                 { return buffer_.size() * sizeof(clientSocket) + sizeof(clientSocket) < bufferSize_ || !running_; });
 
         // if the flag is false close the socket
         if (!running_)
@@ -167,6 +169,7 @@ void PollerServer::masterThread()
             close(clientSocket);
             break;
         }
+        cout << buffer_.size() << "\n";
         // if it's awake push the clientSocket fd into the buffer so workers can read
         buffer_.push(clientSocket);
 
@@ -175,7 +178,6 @@ void PollerServer::masterThread()
         cv_.notify_all();
     }
 
-    cout << "does it end?\n";
     // if exited close the serverSocket
     close(serverSocket);
 }
@@ -277,19 +279,22 @@ void PollerServer::workerThread()
         // Acquire a lock before accessing the file
         std::unique_lock<std::mutex> lock_file(fileMutex_);
         cv_logfile.wait(lock_file, [this]()
-                        { return !worker_inside; });
+                        { return !worker_inside || !running_; });
         worker_inside++;
 
         // Write the name and party to the poll-log file
         pollLog_ << name << " " << party;
         pollLog_.flush();
+
+        // Update the server statistics (number of votes for each party)
+        partyVotes_[party]++;
+
         worker_inside--;
         // unlock the access to the file
         lock_file.unlock();
         cv_logfile.notify_all();
 
-        // Update the server statistics (number of votes for each party)
-        partyVotes_[party]++;
+        // clientSocket = 0;
     }
 
     cout << "thread exiting\n";
