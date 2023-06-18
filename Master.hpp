@@ -26,7 +26,7 @@ class PollerServer
 public:
     // Constructor
     PollerServer(int portNum, int numWorkerThreads, int bufferSize, const std::string &pollLogFileName, const std::string &pollStatsFileName);
-
+    ~PollerServer();
     // Starts the server
     void start();
 
@@ -34,16 +34,16 @@ public:
     static void handleSignalProxy(int signal);
 
 private:
-    int portNum_;          // port Number of the Server
-    int numWorkerThreads_; // Number of Workers
-    int bufferSize_;       // Buffer size to store connections
-    int worker_inside;
+    int portNum_;                            // port Number of the Server
+    int numWorkerThreads_;                   // Number of Workers
+    int bufferSize_;                         // Buffer size to store connections
+    int worker_inside;                       // the condition for writing to the log file
     std::string pollLogFileName_;            // poll-log fileName
     std::string pollStatsFileName_;          // poll-stats fileName
     std::ofstream pollLog_;                  // poll-log output stream
     std::ofstream pollStats_;                // poll-stats output stream
     std::queue<int> buffer_;                 // buffer to keep connections
-    std::mutex mtx_, fileMutex_;             // mutex syncing the buffer
+    std::mutex mtx_, fileMutex_;             // mutex syncing the buffer and another one for syncing writes to log file
     std::condition_variable cv_, cv_logfile; // condition variable to avoid busy waiting
     std::vector<std::thread> workerThreads;  // vector that keeps the worker threads
     std::vector<std::string> voters_;        // vector that keeps the names of the voters so that we don't have duplicates

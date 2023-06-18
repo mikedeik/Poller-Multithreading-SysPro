@@ -14,7 +14,10 @@ using namespace std;
 
 void sendVote(const string &serverName, int portNum, const string &vote)
 {
-
+    if (vote.length() < 2)
+    {
+        return;
+    }
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (clientSocket == -1)
     {
@@ -44,7 +47,6 @@ void sendVote(const string &serverName, int portNum, const string &vote)
         return;
     }
 
-    cout << "connection to a worker established by thread " << std::this_thread::get_id() << "\n";
     char responseBuffer[1024];
     memset(responseBuffer, 0, sizeof(responseBuffer));
     ssize_t bytesRead = recv(clientSocket, responseBuffer, sizeof(responseBuffer), 0);
@@ -150,12 +152,13 @@ int main(int argc, char *argv[])
     string vote;            // the vote string
     vector<thread> threads; // vector of threads
 
+    // get every each line and create a thread that calls the sendVote function
     while (getline(file, vote))
     {
 
         threads.emplace_back(sendVote, serverName, portNum, vote);
     }
-
+    // wait for threads to join
     for (auto &thread : threads)
     {
         thread.join();

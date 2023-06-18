@@ -1,45 +1,55 @@
 #!/bin/bash
 
-# Έλεγχος αν υπάρχει το αρχείο inputFile στον τρέχοντα κατάλογο
+# Check if we have correct num of args
+if [ "$#" -ne 1 ]; then
+  echo "Usage: ./tallyVotes.sh [tallyResultsFile]"
+  exit 1
+fi
+
+# Check if the input file exists
 inputFile="inputFile.txt"
 if [ ! -f "$inputFile" ]; then
-  echo "Το αρχείο inputFile δεν υπάρχει στον τρέχοντα κατάλογο."
+  echo "file $inputFile does not exist in this directory"
   exit 1
 fi
 
-# Έλεγχος αν έχει τα κατάλληλα δικαιώματα χρήσης το αρχείο inputFile
+# check if we have rights for reading the file
 if [ ! -r "$inputFile" ]; then
-  echo "Δεν έχετε τα απαραίτητα δικαιώματα χρήσης για το αρχείο inputFile."
+  echo "you have no rights for reading this file."
   exit 1
 fi
 
-# Αρχικοποίηση του αρχείου tallyResultsFile
+# Set up the tally results file
 tallyResultsFile="$1"
 > "$tallyResultsFile"
 
-# Δημιουργία ενός πίνακα για να αποθηκεύσουμε τα ονόματα που έχουν ήδη ψηφίσει
+# create an array to store the names that have voted
 declare -A votedNames
 
-# Διάβασμα του αρχείου inputFile και καταμέτρηση των ψήφων ανά κόμμα
+# and another one for the results and a var for total
 declare -A tallyResults
+
+total=0;
+
 while read -r line; do
-  name=$(echo "$line" | awk '{$NF=""; print $0}' | xargs)  # Αφαιρούμε την τελευταία στήλη (όνομα κόμματος)
+  name=$(echo "$line" | awk '{$NF=""; print $0}' | xargs)  # get the name of the voter
   
-  # Έλεγχος αν το όνομα υπάρχει ήδη στον πίνακα votedNames
+  # check if the voter allready exists and continue to next if yes
   if [[ ${votedNames[$name]} ]]; then
-    continue  # Αν υπάρχει, προχωράμε στην επόμενη γραμμή
+    continue  
   else
-    votedNames[$name]=1  # Σημειώνουμε το όνομα ψηφοφόρου ως ψηφισμένο
+    votedNames[$name]=1  # Tag the voter that he voted
   fi
   
   party=$(echo "$line" | awk '{print $NF}')
   ((tallyResults[$party]++))
+  ((total++))
 done < "$inputFile"
 
-# Εγγραφή των αποτελεσμάτων στο αρχείο tallyResultsFile
+# Output the results
 for party in "${!tallyResults[@]}"; do
   echo "$party ${tallyResults[$party]}"
 done | sort -k2,2nr > "$tallyResultsFile"
 
-
-echo "Τα αποτελέσματα της ψηφοφορίας καταμετρήθηκαν και εγγράφηκαν στο αρχείο "$tallyResultsFile"."
+echo "Total : $total" >> "$tallyResultsFile"
+echo "Done calculating results to "$tallyResultsFile"."

@@ -11,6 +11,8 @@ PollerServer::PollerServer(int portNum, int numWorkerThreads, int bufferSize, co
 {
 }
 
+PollerServer::~PollerServer() {}
+
 void PollerServer::start()
 {
     // Open the poll-log file
@@ -29,7 +31,11 @@ void PollerServer::start()
     masterThread();
 
     running_ = false;
+
+    // notify all worker threads to continue execution (end what they are doing and exit)
     cv_.notify_all();
+    cv_logfile.notify_all();
+
     // Wait for all worker threads to finish
     cout << "waiting for threads to join\n";
     for (auto &thread : workerThreads)
@@ -65,10 +71,11 @@ void PollerServer::handleSignal(int signal)
         cout << "sigint received\n";
         running_ = false;
         cv_.notify_all();
+        cv_logfile.notify_all();
 
         // Store the map pairs in a vector
         std::vector<std::pair<std::string, int>> pairs(partyVotes_.begin(), partyVotes_.end());
-
+        int count = 0;
         // Sort the vector by value in descending order
         std::sort(pairs.begin(), pairs.end(), sortByValueDesc);
         // Open pollStats file
@@ -77,9 +84,12 @@ void PollerServer::handleSignal(int signal)
         // write the sorted pairs to the pollStats file
         for (const auto &pair : pairs)
         {
+            count += pair.second;
             string partyName = (pair.first).substr(0, (pair.first).size() - 1);
-            pollStats_ << partyName << ": " << pair.second << std::endl;
+            pollStats_ << partyName << ": " << pair.second << "\n";
         }
+
+        pollStats_ << "TOTAL : " << count << "\n";
         pollStats_.flush();
         pollStats_.close();
     }
@@ -169,7 +179,7 @@ void PollerServer::masterThread()
             close(clientSocket);
             break;
         }
-        cout << buffer_.size() << "\n";
+
         // if it's awake push the clientSocket fd into the buffer so workers can read
         buffer_.push(clientSocket);
 

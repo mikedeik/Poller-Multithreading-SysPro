@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Check if we have correct num of args
+if [ "$#" -ne 1 ]; then
+  echo "Usage: ./processLogFile.sh [poll-log]"
+  exit 1
+fi
+
 # Check if the poll-log file exists
 if [ ! -f "$1" ]; then
     echo "poll-log file does not exist"
@@ -23,6 +29,8 @@ fi
 declare -A votedNames
 
 declare -A pollerResults
+
+total=0
 # Read the lines of the file
 while read -r line; do
 
@@ -38,7 +46,7 @@ while read -r line; do
     # name of the party is last column of the line
     party=$(echo "$line" | awk '{print $NF}')
     ((pollerResults[$party]++))
-    
+    ((total++))
 done < "$1"
 
 # output the results in the pollerResults file
@@ -46,4 +54,6 @@ for party in "${!pollerResults[@]}"; do
   echo "$party ${pollerResults[$party]}"
 done | sort -k2,2nr > "$pollerResultsFile"
 
-echo "Ολοκλήρωση επεξεργασίας του αρχείου poll-log"
+echo "Total : $total" >> "$pollerResultsFile"
+
+echo "Done getting results from poll-log"
